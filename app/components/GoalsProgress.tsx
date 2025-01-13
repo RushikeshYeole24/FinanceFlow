@@ -6,7 +6,7 @@ import { ProgressBar } from '../goal/setGoal';
 interface Goal {
   id: string;
   title: string;
-  current: number;
+  current: number;  
   target: number;
 }
 

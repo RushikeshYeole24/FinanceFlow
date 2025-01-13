@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   BarChart,
   Wallet,
-  TrendingUp,
   Bell,
   Settings,
   Target,
@@ -14,12 +13,15 @@ import {
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "./users/firebaseConfig";
 import { GoalsProgress } from './components/GoalsProgress';
+import axios from 'axios';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 
 type Transaction = {
   id: string;
   title: string;
   category: string;
   amount: number;
+  type: 'expense' | 'income';
 };
 
 interface MonthlySavings {
@@ -28,10 +30,22 @@ interface MonthlySavings {
   lastUpdated: Date;
 }
 
+type NewsArticle = {
+  title: string;
+  description: string;
+  url: string;
+  source: string;
+  publishedAt: string;
+};
+
 const HomePage = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [currentMonthSavings, setCurrentMonthSavings] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [news, setNews] = useState<NewsArticle[]>([]);
+  const [categoryTotals, setCategoryTotals] = useState<{ name: string; value: number }[]>([]);
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
   const quickActions = [
     { icon: <Wallet className="h-6 w-6" />, title: "Add Transaction", link: "/users" },
@@ -40,20 +54,48 @@ const HomePage = () => {
     { icon: <CreditCard className="h-6 w-6" />, title: "Play Game", link: "/accounts" },
   ];
 
-  const insights = [
-    { title: "Monthly Savings", value: "+$2,450", trend: "+15%", positive: true },
-    { title: "Budget Status", value: "$3,200 left", trend: "70%", positive: true },
-    { title: "Biggest Expense", value: "Housing", trend: "-$1,500", positive: false },
-  ];
-
   useEffect(() => {
     const fetchData = async () => {
-      const querySnapshot = await getDocs(collection(db, "transactions"));
-      const data = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...(doc.data() as Omit<Transaction, "id">),
-      }));
-      setTransactions(data);
+      try {
+        // Log the database reference to ensure it's configured
+        console.log("Database reference:", db);
+
+        const transactionsRef = collection(db, "transactions");
+        console.log("Collection reference:", transactionsRef);
+
+        const querySnapshot = await getDocs(transactionsRef);
+        console.log("Query snapshot size:", querySnapshot.size);
+
+        const data = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...(doc.data() as Omit<Transaction, "id">),
+        }));
+        setTransactions(data);
+
+        console.log("Fetched transactions:", data);
+
+        // Modified totals calculation to handle the actual data structure
+        const totals = data.reduce((acc, transaction) => {
+          // Check for expense type transactions
+          if (transaction.type === 'expense') {
+            const amount = Number(transaction.amount); // Convert amount to number if it's a string
+            if (!isNaN(amount)) {
+              acc[transaction.category] = (acc[transaction.category] || 0) + amount;
+            }
+          }
+          return acc;
+        }, {} as Record<string, number>);
+
+        const formattedTotals = Object.entries(totals).map(([name, value]) => ({
+          name,
+          value: Number(value.toFixed(2))
+        }));
+
+        console.log("Category totals:", formattedTotals);
+        setCategoryTotals(formattedTotals);
+      } catch (error) {
+        console.error("Error fetching transactions:", error);
+      }
     };
 
     fetchData();
@@ -86,6 +128,33 @@ const HomePage = () => {
     fetchMonthlySavings();
   }, []);
 
+  useEffect(() => {
+    const fetchNews = async () => {
+      try {
+        // Fetch news for some major stock symbols
+        const response = await axios.get('/api/news'); // We'll create this API route
+        setNews(response.data);
+      } catch (error) {
+        console.error("Error fetching news:", error);
+        // Fallback to previous mock data if API fails
+        setNews([
+          {
+            title: "Market Update Unavailable",
+            description: "Please try again later",
+            url: "#",
+            source: "System",
+            publishedAt: new Date().toLocaleDateString()
+          }
+        ]);
+      }
+    };
+
+    fetchNews();
+    const interval = setInterval(fetchNews, 300000); // Refresh every 5 minutes
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
       <header className="p-4 flex justify-between items-center">
@@ -107,7 +176,7 @@ const HomePage = () => {
         <section className="text-center space-y-4">
           <h2 className="text-4xl font-bold">Welcome back!</h2>
           <p className="text-gray-400">Your financial wellness score is 85/100</p>
-          <div className="h-2 max-w-md mx-auto bg-gray-700 rounded-full overflow-hidden">
+          <div className="h-2 max-w-md mx-auto bg-gray-700 rounded-full">
             <div className="h-full w-4/5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full"></div>
           </div>
         </section>
@@ -129,23 +198,64 @@ const HomePage = () => {
           ))}
         </section>
 
-        <section className="grid md:grid-cols-3 gap-4">
-          {insights.map((insight, index) => (
-            <div key={index} className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-              <h3 className="text-gray-400 text-sm">{insight.title}</h3>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-2xl font-bold">{insight.value}</span>
-                <span
-                  className={`flex items-center ${
-                    insight.positive ? "text-green-400" : "text-red-400"
-                  }`}
-                >
-                  <TrendingUp className="h-4 w-4 mr-1" />
-                  {insight.trend}
-                </span>
-              </div>
+        {/* Recent News Section */}
+        <section className="bg-gray-800 border border-gray-700 rounded-lg">
+          <div className="p-4 flex items-center justify-between border-b border-gray-700">
+            <h2 className="font-semibold text-lg">Recent Finance News</h2>
+            <button className="text-sm text-blue-400 hover:text-blue-300">View All</button>
+          </div>
+          <div className="p-4 space-y-4">
+            {news && news.length > 0 ? (
+              news.map((article, index) => (
+                <div key={index} className="flex flex-col space-y-2 hover:bg-gray-700 p-2 rounded-lg">
+                  <a href={article.url} target="_blank" rel="noopener noreferrer">
+                    <h3 className="font-medium">{article.title}</h3>
+                    <p className="text-sm text-gray-400">{article.description}</p>
+                    <div className="flex justify-between mt-2 text-xs text-gray-500">
+                      <span>{article.source}</span>
+                      <span>{article.publishedAt}</span>
+                    </div>
+                  </a>
+                </div>
+              ))
+            ) : (
+              <div className="animate-pulse bg-gray-700 h-8 rounded"></div>
+            )}
+          </div>
+        </section>
+
+        <section className="bg-gray-800 border border-gray-700 rounded-lg p-4 my-4">
+          <h2 className="font-semibold text-lg mb-4">Expenses by Category</h2>
+          {categoryTotals.length > 0 ? (
+            <div className="h-[300px] w-full border border-gray-700">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={categoryTotals}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {categoryTotals.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'Amount']}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
-          ))}
+          ) : (
+            <div className="text-center py-4 text-gray-400">
+              No expense data available
+            </div>
+          )}
         </section>
 
         <div className="bg-gray-800 border border-gray-700 rounded-lg">
@@ -170,8 +280,7 @@ const HomePage = () => {
                       transaction.amount > 0 ? "text-green-400" : "text-red-400"
                     }
                   >
-                    {transaction.amount > 0 ? "+" : ""}
-                    ${Math.abs(transaction.amount).toFixed(2)}
+                    {transaction.amount > 0 ? "+" : ""}${Math.abs(transaction.amount).toFixed(2)}
                   </span>
                 </div>
               ))}
