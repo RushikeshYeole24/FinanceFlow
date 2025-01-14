@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -155,6 +156,14 @@ const HomePage = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Add dashboard summary cards
+  const summaryCards = [
+    { title: "Total Balance", amount: "$12,345.67", trend: "+2.5%", color: "blue" },
+    { title: "Monthly Spending", amount: "$2,456.78", trend: "-1.2%", color: "red" },
+    { title: "Monthly Savings", amount: `$${currentMonthSavings.toFixed(2)}`, trend: "+5.3%", color: "green" },
+    { title: "Investments", amount: "$5,678.90", trend: "+3.7%", color: "purple" },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
       <header className="p-4 flex justify-between items-center">
@@ -172,93 +181,117 @@ const HomePage = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 space-y-8">
-        <section className="text-center space-y-4">
-          <h2 className="text-4xl font-bold">Welcome back!</h2>
+      <main className="container mx-auto px-4 py-8 space-y-6 max-w-7xl">
+        {/* Enhanced welcome section */}
+        <section className="text-center space-y-4 bg-gray-800/50 rounded-2xl p-8 backdrop-blur-sm">
+          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            Welcome back, User!
+          </h2>
           <p className="text-gray-400">Your financial wellness score is 85/100</p>
-          <div className="h-2 max-w-md mx-auto bg-gray-700 rounded-full">
-            <div className="h-full w-4/5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full"></div>
+          <div className="h-3 max-w-md mx-auto bg-gray-700 rounded-full overflow-hidden">
+            <div 
+              className="h-full w-4/5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full 
+                         transition-all duration-1000 ease-in-out"
+            ></div>
           </div>
         </section>
 
+        {/* Dashboard Summary Cards */}
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {summaryCards.map((card, index) => (
+            <div 
+              key={index}
+              className="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:bg-gray-700/50 
+                         transition-all duration-300 ease-in-out transform hover:-translate-y-1"
+            >
+              <h3 className="text-gray-400 text-sm">{card.title}</h3>
+              <p className="text-2xl font-bold mt-2">{card.amount}</p>
+              <span className={`text-sm text-${card.color}-400`}>{card.trend}</span>
+            </div>
+          ))}
+        </section>
+
+        {/* Quick Actions with enhanced styling */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {quickActions.map((action, index) => (
-            <Link legacyBehavior href={action.link} key={index}>
-              <a
-                className="bg-gray-800 border border-gray-700 rounded-lg p-4 hover:bg-gray-700 transition-colors flex flex-col items-center justify-center space-y-2 group"
-                title={action.title}
-              >
-                {action.icon}
-                <span className="text-sm">{action.title}</span>
-                <span className="text-gray-400 text-xs group-hover:opacity-100 opacity-0 transition-opacity">
-                  {action.title}
-                </span>
-              </a>
+            <Link href={action.link} key={index}>
+              <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:bg-gray-700/50 
+                            transition-all duration-300 ease-in-out transform hover:-translate-y-1
+                            flex flex-col items-center justify-center space-y-3">
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  {action.icon}
+                </div>
+                <span className="text-sm font-medium">{action.title}</span>
+              </div>
             </Link>
           ))}
         </section>
 
-        {/* Recent News Section */}
-        <section className="bg-gray-800 border border-gray-700 rounded-lg">
-          <div className="p-4 flex items-center justify-between border-b border-gray-700">
-            <h2 className="font-semibold text-lg">Recent Finance News</h2>
-            <button className="text-sm text-blue-400 hover:text-blue-300">View All</button>
-          </div>
-          <div className="p-4 space-y-4">
-            {news && news.length > 0 ? (
-              news.map((article, index) => (
-                <div key={index} className="flex flex-col space-y-2 hover:bg-gray-700 p-2 rounded-lg">
-                  <a href={article.url} target="_blank" rel="noopener noreferrer">
-                    <h3 className="font-medium">{article.title}</h3>
-                    <p className="text-sm text-gray-400">{article.description}</p>
-                    <div className="flex justify-between mt-2 text-xs text-gray-500">
+        {/* Two-column layout for charts and news */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Expenses Chart */}
+          <section className="bg-gray-800 border border-gray-700 rounded-xl p-6">
+            <h2 className="font-semibold text-lg mb-4">Expenses by Category</h2>
+            {categoryTotals.length > 0 ? (
+              <div className="h-[300px] w-full border border-gray-700">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={categoryTotals}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {categoryTotals.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value: number) => [`$${value.toFixed(2)}`, 'Amount']}
+                    />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-gray-400">
+                No expense data available
+              </div>
+            )}
+          </section>
+
+          {/* News Section with enhanced styling */}
+          <section className="bg-gray-800 border border-gray-700 rounded-xl">
+            <div className="p-6 border-b border-gray-700">
+              <h2 className="font-semibold text-lg">Recent Finance News</h2>
+            </div>
+            <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar">
+              {news.map((article, index) => (
+                <div key={index} 
+                     className="p-4 hover:bg-gray-700/50 rounded-xl transition-colors duration-200">
+                  <a href={article.url} target="_blank" rel="noopener noreferrer"
+                     className="block space-y-2">
+                    <h3 className="font-medium hover:text-blue-400 transition-colors">
+                      {article.title}
+                    </h3>
+                    <p className="text-sm text-gray-400 line-clamp-2">{article.description}</p>
+                    <div className="flex justify-between text-xs text-gray-500">
                       <span>{article.source}</span>
                       <span>{article.publishedAt}</span>
                     </div>
                   </a>
                 </div>
-              ))
-            ) : (
-              <div className="animate-pulse bg-gray-700 h-8 rounded"></div>
-            )}
-          </div>
-        </section>
-
-        <section className="bg-gray-800 border border-gray-700 rounded-lg p-4 my-4">
-          <h2 className="font-semibold text-lg mb-4">Expenses by Category</h2>
-          {categoryTotals.length > 0 ? (
-            <div className="h-[300px] w-full border border-gray-700">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryTotals}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {categoryTotals.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'Amount']}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              ))}
             </div>
-          ) : (
-            <div className="text-center py-4 text-gray-400">
-              No expense data available
-            </div>
-          )}
-        </section>
+          </section>
+        </div>
 
-        <div className="bg-gray-800 border border-gray-700 rounded-lg">
+        {/* Recent Activity with enhanced styling */}
+        <section className="bg-gray-800 border border-gray-700 rounded-xl">
           <div className="p-4 flex items-center justify-between border-b border-gray-700">
             <h2 className="font-semibold text-lg">Recent Activity</h2>
             <button className="text-sm text-blue-400 hover:text-blue-300">View All</button>
@@ -286,25 +319,9 @@ const HomePage = () => {
               ))}
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="p-6 bg-gray-800 rounded-lg shadow-lg mb-6">
-          <h2 className="text-xl font-bold mb-2">Monthly Savings</h2>
-          {isLoading ? (
-            <div className="animate-pulse bg-gray-700 h-8 rounded"></div>
-          ) : (
-            <div className="text-2xl font-bold text-green-500">
-              ${currentMonthSavings.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}
-            </div>
-          )}
-          <p className="text-sm text-gray-400 mt-1">
-            Total savings for {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
-          </p>
-        </div>
-
+        {/* Goals Progress */}
         <div className="mt-6">
           <GoalsProgress />
         </div>
