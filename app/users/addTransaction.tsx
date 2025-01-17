@@ -2,8 +2,8 @@
 "use client";
 import React, { useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
-import { db } from "./firebaseConfig";
-import { collection, addDoc, getDocs, query, where, updateDoc, increment } from "firebase/firestore";
+import { db, auth } from "./firebaseConfig";
+import { collection, addDoc, getDocs, query, where, updateDoc, increment, orderBy } from "firebase/firestore";
 
 // Firestore Integration Function
 async function addDataToFirestore(name: string, email: string, message: string) {
@@ -58,46 +58,80 @@ export const AddTransaction = () => {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    if (!auth.currentUser) {
+      console.error("No user logged in");
+      return;
+    }
+
     try {
       const transactionData = {
-        ...formData,
-        receipt: formData.receipt ? formData.receipt.name : null,
+        type: formData.type,
+        amount: parseFloat(formData.amount),
+        category: formData.category,
+        description: formData.description,
+        userId: auth.currentUser.uid,
         date: new Date(formData.date),
-        amount: parseFloat(formData.amount), // Convert amount to number
+        timestamp: new Date(),
+        // Only add receipt if it exists
+        ...(formData.receipt ? { receipt: formData.receipt.name } : {})
       };
 
-      // Add transaction to transactions collection
-      await addDoc(collection(db, "transactions"), transactionData);
+      // Validation checks
+      if (!transactionData.type || !['income', 'expense'].includes(transactionData.type)) {
+        throw new Error('Invalid transaction type');
+      }
+      if (isNaN(transactionData.amount)) {
+        throw new Error('Invalid amount');
+      }
+      if (!transactionData.category || !transactionData.description) {
+        throw new Error('Missing required fields');
+      }
 
-      // If this is a savings transaction, update monthly savings
-      if (formData.type === "income" && formData.category === "Savings") {
-        const currentDate = new Date(formData.date);
-        const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+      console.log("Transaction Data being sent:", transactionData);
+      
+      const docRef = await addDoc(collection(db, "transactions"), transactionData);
+      console.log("Transaction added with ID:", docRef.id);
 
-        // Get reference to monthly savings document
-        const savingsRef = collection(db, "monthlySavings");
-        const querySnapshot = await getDocs(
-          query(
-            savingsRef,
-            where("monthYear", "==", monthYear)
-          )
-        );
+      // Get month-year string for the transaction date
+      const currentDate = new Date(formData.date);
+      const monthYear = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
 
-        if (querySnapshot.empty) {
-          // Create new monthly savings record
-          await addDoc(collection(db, "monthlySavings"), {
-            monthYear,
-            total: parseFloat(formData.amount),
-            lastUpdated: new Date()
-          });
-        } else {
-          // Update existing monthly savings record
-          const docRef = querySnapshot.docs[0].ref;
-          await updateDoc(docRef, {
-            total: increment(parseFloat(formData.amount)),
-            lastUpdated: new Date()
-          });
-        }
+      // Prepare monthly totals data
+      const monthlyData = {
+        monthYear,
+        userId: auth.currentUser.uid, // Add userId to monthly totals
+        income: formData.type === "income" ? parseFloat(formData.amount) : 0,
+        expenses: formData.type === "expense" ? parseFloat(formData.amount) : 0,
+        savings: (formData.type === "income" && formData.category === "Savings") ? parseFloat(formData.amount) : 0,
+        lastUpdated: new Date()
+      };
+
+      // Query existing monthly totals
+      const monthlyTotalsRef = collection(db, "monthlyTotals");
+      const q = query(
+        monthlyTotalsRef,
+        where("monthYear", "==", monthYear),
+        where("userId", "==", auth.currentUser.uid),
+        orderBy("monthYear"),
+        orderBy("userId"),
+        orderBy("__name__")
+      );
+
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        // Create new monthly totals record
+        await addDoc(collection(db, "monthlyTotals"), monthlyData);
+      } else {
+        // Update existing monthly totals record
+        const docRef = querySnapshot.docs[0].ref;
+        await updateDoc(docRef, {
+          [formData.type === "income" ? "income" : "expenses"]: increment(parseFloat(formData.amount)),
+          ...(formData.type === "income" && formData.category === "Savings" 
+            ? { savings: increment(parseFloat(formData.amount)) }
+            : {}),
+          lastUpdated: new Date()
+        });
       }
 
       console.log("Transaction added:", formData);
@@ -115,7 +149,8 @@ export const AddTransaction = () => {
 
       setTimeout(() => setSuccess(false), 3000);
     } catch (error) {
-      console.error("Error adding transaction:", error);
+      console.error("Error:", error);
+      throw error; // Re-throw to be caught by outer try-catch
     }
   };
 

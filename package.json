@@ -2,20 +2,26 @@
   "name": "finance-management-app",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "bot": "node your-telegram-bot.js"
   },
   "dependencies": {
+    "@firebasegen/default-connector": "file:dataconnect-generated/js/default-connector",
     "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
     "firebase": "^11.1.0",
     "lucide-react": "^0.469.0",
     "next": "15.1.2",
+    "node-telegram-bot-api": "^0.66.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.0",
+    "telegraf": "^4.16.3",
     "yfinance": "^0.0.6"
   },
   "devDependencies": {

@@ -16,6 +16,7 @@ import { db } from "./users/firebaseConfig";
 import { GoalsProgress } from './components/GoalsProgress';
 import axios from 'axios';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { useAuth } from '../app/context/AuthContext';
 
 type Transaction = {
   id: string;
@@ -23,6 +24,8 @@ type Transaction = {
   category: string;
   amount: number;
   type: 'expense' | 'income';
+  source: 'manual' | 'telegram';
+  timestamp: Date;
 };
 
 interface MonthlySavings {
@@ -40,6 +43,7 @@ type NewsArticle = {
 };
 
 const HomePage = () => {
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [currentMonthSavings, setCurrentMonthSavings] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -58,28 +62,52 @@ const HomePage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Log the database reference to ensure it's configured
-        console.log("Database reference:", db);
+        // Fetch both regular and telegram transactions
+        const regularTransactionsRef = collection(db, "transactions");
+        const telegramTransactionsRef = collection(db, "telegram_transactions");
 
-        const transactionsRef = collection(db, "transactions");
-        console.log("Collection reference:", transactionsRef);
+        // Get both transaction types
+        const [regularSnapshot, telegramSnapshot] = await Promise.all([
+          getDocs(query(regularTransactionsRef, where("userId", "==", user?.uid))),
+          getDocs(telegramTransactionsRef) // Fetch all telegram transactions for now
+        ]);
 
-        const querySnapshot = await getDocs(transactionsRef);
-        console.log("Query snapshot size:", querySnapshot.size);
-
-        const data = querySnapshot.docs.map(doc => ({
+        // Map regular transactions
+        const regularData = regularSnapshot.docs.map(doc => ({
           id: doc.id,
-          ...(doc.data() as Omit<Transaction, "id">),
+          title: doc.data().description || doc.data().title || '',
+          category: doc.data().category || 'Other',
+          amount: Number(doc.data().amount),
+          type: doc.data().type as 'expense' | 'income',
+          source: 'manual' as const,
+          timestamp: doc.data().timestamp?.toDate?.() || new Date()
         }));
-        setTransactions(data);
 
-        console.log("Fetched transactions:", data);
+        // Map telegram transactions with the correct structure
+        const telegramData = telegramSnapshot.docs.map(doc => ({
+          id: `telegram_${doc.id}`,
+          title: doc.data().title || 'Telegram Transaction',
+          category: doc.data().category || 'Other',
+          amount: Number(doc.data().amount),
+          type: doc.data().type as 'expense' | 'income',
+          source: 'telegram' as const,
+          timestamp: doc.data().timestamp?.toDate?.() || new Date()
+        }));
 
-        // Modified totals calculation to handle the actual data structure
-        const totals = data.reduce((acc, transaction) => {
-          // Check for expense type transactions
+        console.log("Telegram transactions:", telegramData); // Debug log
+
+        // Combine and sort all transactions
+        const allTransactions = [...regularData, ...telegramData].sort((a, b) => 
+          b.timestamp.getTime() - a.timestamp.getTime()
+        );
+
+        setTransactions(allTransactions);
+        console.log("All transactions:", allTransactions);
+
+        // Calculate category totals
+        const totals = allTransactions.reduce((acc, transaction) => {
           if (transaction.type === 'expense') {
-            const amount = Number(transaction.amount); // Convert amount to number if it's a string
+            const amount = Number(transaction.amount);
             if (!isNaN(amount)) {
               acc[transaction.category] = (acc[transaction.category] || 0) + amount;
             }
@@ -92,15 +120,18 @@ const HomePage = () => {
           value: Number(value.toFixed(2))
         }));
 
-        console.log("Category totals:", formattedTotals);
         setCategoryTotals(formattedTotals);
       } catch (error) {
         console.error("Error fetching transactions:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    fetchData();
-  }, []);
+    if (user) {
+      fetchData();
+    }
+  }, [user]);
 
   useEffect(() => {
     const fetchMonthlySavings = async () => {
@@ -298,22 +329,31 @@ const HomePage = () => {
           </div>
           <div className="p-4">
             <div className="space-y-4">
-              {transactions.map((transaction, index) => (
+              {transactions.map((transaction) => (
                 <div
-                  key={index}
+                  key={transaction.id}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-700"
                 >
                   <div>
                     <p className="font-medium">{transaction.title}</p>
                     <p className="text-sm text-gray-400">{transaction.category}</p>
-                    <p className="text-xs text-gray-500">Amount recorded recently</p>
+                    <p className="text-xs text-gray-500">
+                      {transaction.timestamp instanceof Date 
+                        ? transaction.timestamp.toLocaleDateString() 
+                        : 'No date available'}
+                      {' • '}
+                      {transaction.source}
+                    </p>
                   </div>
                   <span
                     className={
-                      transaction.amount > 0 ? "text-green-400" : "text-red-400"
+                      transaction.type === 'income'
+                        ? "text-green-400"
+                        : "text-red-400"
                     }
                   >
-                    {transaction.amount > 0 ? "+" : ""}${Math.abs(transaction.amount).toFixed(2)}
+                    {transaction.type === 'income' ? "+" : "-"}$
+                    {Math.abs(transaction.amount).toFixed(2)}
                   </span>
                 </div>
               ))}

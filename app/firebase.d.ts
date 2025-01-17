@@ -1,0 +1,1 @@
+// This file may not be necessary if Firebase is installed correctly 
