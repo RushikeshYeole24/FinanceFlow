@@ -17,6 +17,7 @@ import { GoalsProgress } from './components/GoalsProgress';
 import axios from 'axios';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { useAuth } from '../app/context/AuthContext';
+import { TelegramLink } from './components/TelegramLink';
 
 type Transaction = {
   id: string;
@@ -61,15 +62,28 @@ const HomePage = () => {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!user?.uid) {
+        console.log("No user logged in");
+        return;
+      }
+
       try {
-        // Fetch both regular and telegram transactions
+        // First get the user's telegram link
+        const telegramLinkRef = collection(db, "userTelegramLinks");
+        const telegramLinkSnapshot = await getDocs(
+          query(telegramLinkRef, where("userId", "==", user.uid))
+        );
+        
+        const telegramId = telegramLinkSnapshot.docs[0]?.data()?.telegramId;
+        console.log("Found Telegram ID:", telegramId);
+
+        // Fetch both types of transactions
         const regularTransactionsRef = collection(db, "transactions");
         const telegramTransactionsRef = collection(db, "telegram_transactions");
 
-        // Get both transaction types
         const [regularSnapshot, telegramSnapshot] = await Promise.all([
-          getDocs(query(regularTransactionsRef, where("userId", "==", user?.uid))),
-          getDocs(telegramTransactionsRef) // Fetch all telegram transactions for now
+          getDocs(query(regularTransactionsRef, where("userId", "==", user.uid))),
+          getDocs(query(telegramTransactionsRef, where("userId", "==", Number(telegramId))))
         ]);
 
         // Map regular transactions
@@ -83,10 +97,10 @@ const HomePage = () => {
           timestamp: doc.data().timestamp?.toDate?.() || new Date()
         }));
 
-        // Map telegram transactions with the correct structure
+        // Map telegram transactions
         const telegramData = telegramSnapshot.docs.map(doc => ({
           id: `telegram_${doc.id}`,
-          title: doc.data().title || 'Telegram Transaction',
+          title: doc.data().title || '',
           category: doc.data().category || 'Other',
           amount: Number(doc.data().amount),
           type: doc.data().type as 'expense' | 'income',
@@ -94,7 +108,8 @@ const HomePage = () => {
           timestamp: doc.data().timestamp?.toDate?.() || new Date()
         }));
 
-        console.log("Telegram transactions:", telegramData); // Debug log
+        console.log("Regular transactions:", regularData.length);
+        console.log("Telegram transactions:", telegramData.length);
 
         // Combine and sort all transactions
         const allTransactions = [...regularData, ...telegramData].sort((a, b) => 
@@ -102,14 +117,15 @@ const HomePage = () => {
         );
 
         setTransactions(allTransactions);
-        console.log("All transactions:", allTransactions);
+        console.log(`Fetched ${allTransactions.length} total transactions`);
 
-        // Calculate category totals
+        // Calculate category totals from both sources
         const totals = allTransactions.reduce((acc, transaction) => {
           if (transaction.type === 'expense') {
             const amount = Number(transaction.amount);
             if (!isNaN(amount)) {
-              acc[transaction.category] = (acc[transaction.category] || 0) + amount;
+              const category = transaction.category || 'Other';
+              acc[category] = (acc[category] || 0) + amount;
             }
           }
           return acc;
@@ -120,6 +136,7 @@ const HomePage = () => {
           value: Number(value.toFixed(2))
         }));
 
+        console.log("Category totals:", formattedTotals);
         setCategoryTotals(formattedTotals);
       } catch (error) {
         console.error("Error fetching transactions:", error);
@@ -130,6 +147,9 @@ const HomePage = () => {
 
     if (user) {
       fetchData();
+    } else {
+      setTransactions([]);
+      setCategoryTotals([]);
     }
   }, [user]);
 
@@ -189,10 +209,10 @@ const HomePage = () => {
 
   // Add dashboard summary cards
   const summaryCards = [
-    { title: "Total Balance", amount: "$12,345.67", trend: "+2.5%", color: "blue" },
+    
     { title: "Monthly Spending", amount: "$2,456.78", trend: "-1.2%", color: "red" },
     { title: "Monthly Savings", amount: `$${currentMonthSavings.toFixed(2)}`, trend: "+5.3%", color: "green" },
-    { title: "Investments", amount: "$5,678.90", trend: "+3.7%", color: "purple" },
+    
   ];
 
   return (
@@ -202,21 +222,17 @@ const HomePage = () => {
           FinanceFlow
         </h1>
         <div className="flex items-center space-x-4">
-          <button className="p-2 hover:bg-gray-700 rounded-full relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></span>
-          </button>
-          <button className="p-2 hover:bg-gray-700 rounded-full">
+          <Link href="/settings" className="p-2 hover:bg-gray-700 rounded-full">
             <Settings className="h-5 w-5" />
-          </button>
+          </Link>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-6 max-w-7xl">
-        {/* Enhanced welcome section */}
+        {/* Welcome section */}
         <section className="text-center space-y-4 bg-gray-800/50 rounded-2xl p-8 backdrop-blur-sm">
           <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Welcome back, User!
+            Welcome back, {user?.email?.split('@')[0] || 'User'}!
           </h2>
           <p className="text-gray-400">Your financial wellness score is 85/100</p>
           <div className="h-3 max-w-md mx-auto bg-gray-700 rounded-full overflow-hidden">
@@ -225,6 +241,14 @@ const HomePage = () => {
                          transition-all duration-1000 ease-in-out"
             ></div>
           </div>
+        </section>
+
+        {/* Telegram Link Section */}
+        <section className="bg-gray-800/50 rounded-2xl p-8 backdrop-blur-sm">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Telegram Integration</h2>
+          </div>
+          <TelegramLink />
         </section>
 
         {/* Dashboard Summary Cards */}
