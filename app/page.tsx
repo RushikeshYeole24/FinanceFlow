@@ -1,7 +1,8 @@
+/* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   BarChart,
@@ -10,12 +11,30 @@ import {
   Settings,
   Target,
   CreditCard,
+  BarChart as BarChartIcon,
+  LineChart as LineChartIcon,
+  Calendar,
+  LineChart,
 } from "lucide-react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "./users/firebaseConfig";
 import { GoalsProgress } from './components/GoalsProgress';
 import axios from 'axios';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import {
+  BarChart as RechartsBarChart,
+  LineChart as RechartsLineChart,
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+  Tooltip,
+  Bar,
+  CartesianGrid,
+  Line,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useAuth } from '../app/context/AuthContext';
 import { TelegramLink } from './components/TelegramLink';
 
@@ -43,6 +62,40 @@ type NewsArticle = {
   publishedAt: string;
 };
 
+type TimeRange = 'thisMonth' | 'lastMonth' | '3months' | '6months' | 'year' | 'allTime';
+type ChartData = {
+  date: string;
+  savings: number;
+  expenses: number;
+  balance: number;
+};
+
+// Add the FinanceFlowLogo component from auth page
+const FinanceFlowLogo = ({ className = "" }) => {
+  return (
+    <div className={`flex items-center gap-3 ${className}`}>
+      <div className="relative">
+        <div className="w-12 h-12 bg-red-500 rounded-lg flex items-center justify-center">
+          <svg 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            className="w-8 h-8 text-white"
+            stroke="currentColor" 
+            strokeWidth="2"
+          >
+            <path d="M18 4H6C4.89543 4 4 4.89543 4 6V18C4 19.1046 4.89543 20 6 20H18C19.1046 20 20 19.1046 20 18V6C20 4.89543 19.1046 4 18 4Z" />
+            <path d="M16 10H20V14H16C14.8954 14 14 13.1046 14 12C14 10.8954 14.8954 10 16 10Z" />
+          </svg>
+          <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full" />
+        </div>
+      </div>
+      <span className="text-2xl font-bold text-white">
+        Finance<span className="text-red-500">Flow</span>
+      </span>
+    </div>
+  );
+};
+
 const HomePage = () => {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -50,6 +103,10 @@ const HomePage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [categoryTotals, setCategoryTotals] = useState<{ name: string; value: number }[]>([]);
+  const [monthlySpending, setMonthlySpending] = useState(0);
+  const [monthlySpendingTrend, setMonthlySpendingTrend] = useState("0%");
+  const [timeRange, setTimeRange] = useState<TimeRange>('thisMonth');
+  const [chartData, setChartData] = useState<ChartData[]>([]);
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
@@ -59,6 +116,90 @@ const HomePage = () => {
     { icon: <Target className="h-6 w-6" />, title: "SplitMoney", link: "/splitmoney" },
     { icon: <CreditCard className="h-6 w-6" />, title: "Play Game", link: "/accounts" },
   ];
+
+  const calculateChartData = useCallback(() => {
+    if (!transactions.length) return [];
+
+    const endDate = new Date();
+    let startDate = new Date();
+
+    // Set start date based on selected time range
+    switch (timeRange) {
+      case 'thisMonth':
+        startDate.setDate(1);
+        break;
+      case 'lastMonth':
+        startDate.setMonth(startDate.getMonth() - 1);
+        startDate.setDate(1);
+        endDate.setDate(0); // Last day of previous month
+        break;
+      case '3months':
+        startDate.setMonth(startDate.getMonth() - 3);
+        break;
+      case '6months':
+        startDate.setMonth(startDate.getMonth() - 6);
+        break;
+      case 'year':
+        startDate.setFullYear(startDate.getFullYear() - 1);
+        break;
+      case 'allTime':
+        startDate = new Date(Math.min(...transactions.map(t => new Date(t.timestamp).getTime())));
+        break;
+    }
+
+    const buckets = new Map<string, { savings: number; expenses: number; balance: number }>();
+    const dateFormat = timeRange === 'thisMonth' || timeRange === 'lastMonth' 
+      ? 'MM/dd' 
+      : 'MM/yyyy';
+
+    // Initialize buckets
+    let currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      const key = currentDate.toLocaleDateString('en-US', {
+        month: '2-digit',
+        ...(dateFormat === 'MM/dd' ? { day: '2-digit' } : { year: 'numeric' })
+      });
+      buckets.set(key, { savings: 0, expenses: 0, balance: 0 });
+      
+      if (dateFormat === 'MM/dd') {
+        currentDate.setDate(currentDate.getDate() + 1);
+      } else {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+    }
+
+    // Fill buckets with transaction data
+    transactions.forEach(transaction => {
+      const date = new Date(transaction.timestamp);
+      if (date >= startDate && date <= endDate) {
+        const key = date.toLocaleDateString('en-US', {
+          month: '2-digit',
+          ...(dateFormat === 'MM/dd' ? { day: '2-digit' } : { year: 'numeric' })
+        });
+        
+        const bucket = buckets.get(key) || { savings: 0, expenses: 0, balance: 0 };
+        
+        if (transaction.category === 'Savings') {
+          bucket.savings += transaction.amount;
+        } else if (transaction.type === 'expense') {
+          bucket.expenses += transaction.amount;
+        }
+        
+        bucket.balance = bucket.savings - bucket.expenses;
+        buckets.set(key, bucket);
+      }
+    });
+
+    return Array.from(buckets.entries()).map(([date, data]) => ({
+      date,
+      ...data
+    }));
+  }, [transactions, timeRange]);
+
+  useEffect(() => {
+    const data = calculateChartData();
+    setChartData(data);
+  }, [calculateChartData, timeRange]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -207,6 +348,41 @@ const HomePage = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Update monthly spending calculations
+  useEffect(() => {
+    if (transactions.length > 0) {
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth();
+      const currentYear = currentDate.getFullYear();
+      const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+      const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+      // Calculate current month's spending (both manual and telegram)
+      const currentMonthExpenses = transactions.filter(t => {
+        const transactionDate = new Date(t.timestamp);
+        return t.type === 'expense' &&
+               transactionDate.getMonth() === currentMonth &&
+               transactionDate.getFullYear() === currentYear;
+      }).reduce((sum, t) => sum + t.amount, 0);
+
+      // Calculate last month's spending
+      const lastMonthExpenses = transactions.filter(t => {
+        const transactionDate = new Date(t.timestamp);
+        return t.type === 'expense' &&
+               transactionDate.getMonth() === lastMonth &&
+               transactionDate.getFullYear() === lastMonthYear;
+      }).reduce((sum, t) => sum + t.amount, 0);
+
+      setMonthlySpending(currentMonthExpenses);
+
+      // Calculate spending trend
+      if (lastMonthExpenses > 0) {
+        const trend = ((currentMonthExpenses - lastMonthExpenses) / lastMonthExpenses) * 100;
+        setMonthlySpendingTrend(`${trend > 0 ? '+' : ''}${trend.toFixed(1)}%`);
+      }
+    }
+  }, [transactions]);
+
   // Add dashboard summary cards
   const summaryCards = [
     
@@ -216,30 +392,51 @@ const HomePage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
-      <header className="p-4 flex justify-between items-center">
-        <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
-          FinanceFlow
-        </h1>
+    <div className="min-h-screen bg-gray-900 text-white relative overflow-hidden">
+      {/* Background Gradient Effects */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden">
+        <div className="absolute top-[-20%] left-[-10%] w-96 h-96 bg-red-500/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-[-20%] right-[-10%] w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
+      </div>
+
+      {/* Header */}
+      <header className="relative p-4 flex justify-between items-center backdrop-blur-sm border-b border-gray-800">
+        <FinanceFlowLogo />
         <div className="flex items-center space-x-4">
-          <Link href="/settings" className="p-2 hover:bg-gray-700 rounded-full">
+          <Link href="/settings" className="p-2 hover:bg-gray-800/50 rounded-full transition-colors">
             <Settings className="h-5 w-5" />
           </Link>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 space-y-6 max-w-7xl">
-        {/* Welcome section */}
-        <section className="text-center space-y-4 bg-gray-800/50 rounded-2xl p-8 backdrop-blur-sm">
-          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+      <main className="container mx-auto px-4 py-8 space-y-6 max-w-7xl relative">
+        {/* Welcome section with updated styling */}
+        <section className="text-center space-y-4 bg-gray-800/50 rounded-2xl p-8 backdrop-blur-sm border border-gray-700">
+          <h2 className="text-3xl font-bold text-white">
             Welcome back, {user?.email?.split('@')[0] || 'User'}!
           </h2>
-          <p className="text-gray-400">Your financial wellness score is 85/100</p>
+          <p className="text-gray-400">Your Personal Finance Assistant!</p>
           <div className="h-3 max-w-md mx-auto bg-gray-700 rounded-full overflow-hidden">
-            <div 
-              className="h-full w-4/5 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full 
-                         transition-all duration-1000 ease-in-out"
-            ></div>
+            <div className="h-full w-4/5 bg-gradient-to-r from-red-500 to-blue-500 rounded-full 
+                         transition-all duration-1000 ease-in-out"></div>
+          </div>
+        </section>
+
+        {/* Update summary cards */}
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-6 
+                       hover:bg-gray-700/50 transition-all duration-300 ease-in-out">
+            <h3 className="text-gray-400 text-sm">Monthly Spending</h3>
+            <p className="text-2xl font-bold mt-2">${monthlySpending.toFixed(2)}</p>
+            <span className={`text-sm ${monthlySpendingTrend.startsWith('+') ? 'text-red-400' : 'text-green-400'}`}>
+              {monthlySpendingTrend} from last month
+            </span>
+          </div>
+          <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-6 
+                       hover:bg-gray-700/50 transition-all duration-300 ease-in-out">
+            <h3 className="text-gray-400 text-sm">Monthly Savings</h3>
+            <p className="text-2xl font-bold mt-2">${currentMonthSavings.toFixed(2)}</p>
+            <span className="text-sm text-green-400">+5.3%</span>
           </div>
         </section>
 
@@ -249,21 +446,6 @@ const HomePage = () => {
             <h2 className="text-xl font-semibold">Telegram Integration</h2>
           </div>
           <TelegramLink />
-        </section>
-
-        {/* Dashboard Summary Cards */}
-        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {summaryCards.map((card, index) => (
-            <div 
-              key={index}
-              className="bg-gray-800 border border-gray-700 rounded-xl p-6 hover:bg-gray-700/50 
-                         transition-all duration-300 ease-in-out transform hover:-translate-y-1"
-            >
-              <h3 className="text-gray-400 text-sm">{card.title}</h3>
-              <p className="text-2xl font-bold mt-2">{card.amount}</p>
-              <span className={`text-sm text-${card.color}-400`}>{card.trend}</span>
-            </div>
-          ))}
         </section>
 
         {/* Quick Actions with enhanced styling */}
@@ -280,6 +462,106 @@ const HomePage = () => {
               </div>
             </Link>
           ))}
+        </section>
+
+        {/* Financial Visualizations */}
+        <section className="space-y-6">
+          {/* Time Range Selector */}
+          <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                Time Range
+              </h3>
+              <div className="flex gap-2">
+                {[
+                  { value: 'thisMonth', label: 'This Month' },
+                  { value: 'lastMonth', label: 'Last Month' },
+                  { value: '3months', label: '3 Months' },
+                  { value: '6months', label: '6 Months' },
+                  { value: 'year', label: 'Year' },
+                  { value: 'allTime', label: 'All Time' },
+                ].map((range) => (
+                  <button
+                    key={range.value}
+                    onClick={() => setTimeRange(range.value as TimeRange)}
+                    className={`px-3 py-1 rounded-full text-sm transition-all ${
+                      timeRange === range.value
+                        ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white'
+                        : 'bg-gray-700/50 hover:bg-gray-700 text-gray-300'
+                    }`}
+                  >
+                    {range.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Charts Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bar Chart */}
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <BarChartIcon className="h-5 w-5" />
+                Savings vs Expenses
+              </h3>
+              <div className="h-[400px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis dataKey="date" stroke="#9CA3AF" />
+                    <YAxis stroke="#9CA3AF" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1F2937',
+                        border: '1px solid #374151',
+                        borderRadius: '0.5rem',
+                      }}
+                      labelStyle={{ color: '#9CA3AF' }}
+                    />
+                    <Legend />
+                    <Bar dataKey="savings" name="Savings" fill="#10B981" />
+                    <Bar dataKey="expenses" name="Expenses" fill="#EF4444" />
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Line Chart */}
+            <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <LineChartIcon className="h-5 w-5" />
+                Balance Trend
+              </h3>
+              <div className="h-[400px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsLineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis dataKey="date" stroke="#9CA3AF" />
+                    <YAxis stroke="#9CA3AF" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1F2937',
+                        border: '1px solid #374151',
+                        borderRadius: '0.5rem',
+                      }}
+                      labelStyle={{ color: '#9CA3AF' }}
+                    />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="balance"
+                      name="Balance"
+                      stroke="#60A5FA"
+                      strokeWidth={2}
+                      dot={{ fill: '#60A5FA' }}
+                    />
+                  </RechartsLineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* Two-column layout for charts and news */}
